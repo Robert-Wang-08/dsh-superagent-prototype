@@ -9,6 +9,7 @@ import { Commands } from '../src/infra/commands.ts'
 import { HealthBoard } from '../src/infra/health.ts'
 import { sourceContextOf, type SourceContextDeps } from '../src/app/source-context.ts'
 import { feishuChannel, feishuTrigger, feishuTriggerId } from '../src/sources/feishu-trigger.ts'
+import { feishuReplyArgs } from '../src/sources/feishu-channel.ts'
 import { testDeployment } from './fixtures/deployment.ts'
 import { feishuKind } from '../src/sources/feishu.ts'
 import { githubKind } from '../src/sources/github.ts'
@@ -158,5 +159,16 @@ describe('Source registry', () => {
     const reply: OutboundMessage = { id: 'reply-1', channel, text: 'Done', kind: 'reply' }
     expect(await sources.send(reply, commands)).toBe('sent')
     expect(run.mock.calls[0]![1]).toEqual(expect.arrayContaining(['+messages-reply', '--message-id', 'om_dm']))
+    // A direct chat has no topic stream: Feishu answers reply_in_thread with 2200.
+    expect(run.mock.calls[0]![1]).not.toContain('--reply-in-thread')
+  })
+  it('replies in the topic for a group and keeps a leading mention out of the @file path', () => {
+    // Group chats get the topic stream.
+    expect(feishuReplyArgs('om_1', '收到', false, 'key')).toEqual(expect.arrayContaining(['--markdown', '收到', '--reply-in-thread']))
+    // lark-cli reads a flag value starting with @ as a file reference, so the text goes through --content instead.
+    const mention = feishuReplyArgs('om_1', '@bot 收到', true, 'key')
+    expect(mention).toEqual(expect.arrayContaining(['--content', JSON.stringify({ text: '@bot 收到' })]))
+    expect(mention).not.toContain('--markdown')
+    expect(mention).not.toContain('--reply-in-thread')
   })
 })
