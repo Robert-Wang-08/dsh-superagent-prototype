@@ -19,7 +19,8 @@ export const WORKER_COMMANDS: readonly string[] = ['gh', 'git', 'lark-cli']
 export const workerBin = (stateDir: string): string => join(stateDir, 'worker-bin')
 export const workerGitConfig = (stateDir: string): string => join(stateDir, 'worker-gitconfig')
 const shellQuote = (value: string): string => `'${value.replaceAll("'", "'\\''")}'`
-const gitQuote = (value: string): string => `"${value.replace(/[\\"]/g, char => `\\${char}`)}"`
+/** Quotes a git configuration value, doubling the backslash and double quote characters git reads as escapes. */
+export const gitQuote = (value: string): string => `"${value.replace(/[\\"]/g, char => `\\${char}`)}"`
 export const credentialHelper = (cli: string): string => `!${shellQuote(cli)} auth git-credential`
 
 export function sameDirectory(a: string, b: string): boolean {

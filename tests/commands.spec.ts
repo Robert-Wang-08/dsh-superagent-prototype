@@ -172,8 +172,15 @@ it('says how to add the bot to a chat when Feishu answers that it is not a membe
 it('names only the program and how it ended when a command prints no diagnostics, never its arguments', async () => {
   const commands = new Commands(() => deployment, {}, new AbortController().signal)
   const secret = 'secret reply text'
-  await expect(commands.run('sh', ['-c', 'exit 3', secret])).rejects.toMatchObject({ message: 'sh exited with code 3', exitCode: 3 })
-  await expect(commands.run('sh', ['-c', 'kill -9 $$', secret])).rejects.toMatchObject({ message: 'sh was stopped by SIGKILL' })
+  // `sh` is the POSIX shell; elsewhere node exits the same way from a program the host resolves.
+  const failing = process.platform === 'win32'
+    ? { program: process.execPath, argv: ['-e', 'process.exit(3)', secret], named: 'node.exe' }
+    : { program: 'sh', argv: ['-c', 'exit 3', secret], named: 'sh' }
+  await expect(commands.run(failing.program, failing.argv)).rejects.toMatchObject({ message: `${failing.named} exited with code 3`, exitCode: 3 })
+  // Signals are POSIX: Windows terminates a child with an exit status instead.
+  if (process.platform !== 'win32') {
+    await expect(commands.run('sh', ['-c', 'kill -9 $$', secret])).rejects.toMatchObject({ message: 'sh was stopped by SIGKILL' })
+  }
   await expect(commands.run('/no/such/program', ['secret reply text'])).rejects.toMatchObject({ message: 'program could not run: ENOENT' })
   // Timeouts kill the child with SIGTERM; Node's default error message would echo every argument.
   const timedOut = { killed: true, signal: 'SIGTERM', code: null, stderr: '',

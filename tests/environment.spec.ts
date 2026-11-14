@@ -1,7 +1,7 @@
 import { execFile, spawn } from 'node:child_process'
 import { chmodSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { delimiter, join, sep } from 'node:path'
 import { promisify } from 'node:util'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { SENSITIVE_ENV_PATTERN, type SubprocessRuntime } from '@deepseek-ai/dsh-subprocess'
@@ -22,11 +22,13 @@ const workerEnv = (env: Record<string, string | undefined>): Record<string, stri
 /** The files a shim directory holds: a POSIX shim per command, plus each `.cmd` companion on Windows. */
 const shims = (...names: string[]): string[] =>
   names.flatMap(name => process.platform === 'win32' ? [name, `${name}.cmd`] : [name]).sort()
+// The shims these tests run are `#!/bin/sh` scripts; Windows runs the `.cmd` companions the Windows test covers instead.
+const posixIt = process.platform === 'win32' ? it.skip : it
 beforeEach(() => { dir = mkdtempSync(join(tmpdir(), 'environment-')); mkdirSync(join(dir, 'real')) })
 afterEach(() => { rmSync(dir, { recursive: true, force: true }) })
 
 describe('worker shims', () => {
-  it('run a wrapper that calls `gh` by name without reaching the shim again, and keep the caller\'s other PATH entries', async () => {
+  posixIt('run a wrapper that calls `gh` by name without reaching the shim again, and keep the caller\'s other PATH entries', async () => {
     program(join(dir, 'real', 'gh'), 'echo "{\\"login\\":\\"agent-bot\\",\\"config\\":\\"$GH_CONFIG_DIR\\",\\"path\\":\\"$PATH\\"}"')
     const wrapper = program(join(dir, 'gh-agent'), `GH_CONFIG_DIR=${dir}/agent-config exec gh "$@"`)
     await writeEnvironment(testDeployment({ stateDir: dir, github: { ...testDeployment().github, cli: wrapper }, feishu: undefined }), [])
@@ -35,13 +37,13 @@ describe('worker shims', () => {
     const { stdout } = await exec('gh', ['api', 'user'], { env: { PATH: path }, timeout: 10_000 })
     expect(JSON.parse(stdout)).toEqual({ login: 'agent-bot', config: `${dir}/agent-config`, path: [join(dir, 'venv'), join(dir, 'real'), '/usr/bin', '/bin'].join(':') })
   })
-  it('make `lark-cli` fail without a Feishu bot and each blocked command fail with the agent\'s login', async () => {
+  posixIt('make `lark-cli` fail without a Feishu bot and each blocked command fail with the agent\'s login', async () => {
     await writeEnvironment(testDeployment({ stateDir: dir, feishu: undefined }), ['personal-gh'])
     const bin = workerBin(dir)
     await expect(exec(join(bin, 'lark-cli'), ['im', '+chat-list'])).rejects.toMatchObject({ code: 1, stderr: 'lark-cli is unavailable: this installation has no Feishu bot.\n' })
     await expect(exec(join(bin, 'personal-gh'), [])).rejects.toMatchObject({ code: 1, stderr: 'personal-gh is blocked in this installation; use gh, which acts as agent-bot.\n' })
   })
-  it('keep `gh` and `lark-cli` working, and shim no `git`, when the blocked commands name the commands workers need', async () => {
+  posixIt('keep `gh` and `lark-cli` working, and shim no `git`, when the blocked commands name the commands workers need', async () => {
     const gh = program(join(dir, 'gh-agent'), 'echo gh "$@"'), lark = program(join(dir, 'lark-bot'), 'echo lark "$@"')
     const base = testDeployment()
     await writeEnvironment(testDeployment({ stateDir: dir, github: { ...base.github, cli: gh }, feishu: { ...base.feishu!, cli: lark } }), ['gh', 'git', 'lark-cli'])
@@ -57,9 +59,12 @@ describe('worker shims', () => {
     writeFileSync(join(workerBin(dir), 'notes'), `notes\nmore\n${readFileSync(join(workerBin(dir), 'gh'), 'utf8').split('\n')[1]}\n`)
     await expect(writeEnvironment(testDeployment({ stateDir: dir }), [])).rejects.toThrow(`${join(workerBin(dir), 'notes')} was not written by dsh-superagent`)
     rmSync(join(workerBin(dir), 'notes'))
-    symlinkSync(join(workerBin(dir), 'gh'), join(workerBin(dir), 'link'))
-    await expect(writeEnvironment(testDeployment({ stateDir: dir }), [])).rejects.toThrow('link was not written by dsh-superagent')
-    rmSync(join(workerBin(dir), 'link'))
+    // Windows creates a file symlink only with a privilege the test runner does not hold; the foreign-file cases below still cover it.
+    if (process.platform !== 'win32') {
+      symlinkSync(join(workerBin(dir), 'gh'), join(workerBin(dir), 'link'))
+      await expect(writeEnvironment(testDeployment({ stateDir: dir }), [])).rejects.toThrow('link was not written by dsh-superagent')
+      rmSync(join(workerBin(dir), 'link'))
+    }
     writeFileSync(workerGitConfig(dir), '[user]\n\tname = someone\n')
     await expect(writeEnvironment(testDeployment({ stateDir: dir }), [])).rejects.toThrow(`${workerGitConfig(dir)} was not written by dsh-superagent`)
     expect(readFileSync(workerGitConfig(dir), 'utf8')).toBe('[user]\n\tname = someone\n')
@@ -113,7 +118,10 @@ describe('agent git configuration', () => {
     await git('init', '-q', 'repo')
     await exec('git', ['-C', 'repo', 'remote', 'add', 'origin', 'git@github.com:acme/widgets.git'], { cwd: dir, env })
     expect(await git('-C', 'repo', 'remote', 'get-url', '--push', 'origin')).toBe('https://github.com/acme/widgets.git')
-    expect(await git('config', '--show-origin', '--get-all', 'credential.https://github.com.helper')).toBe(`file:${workerGitConfig(dir)}\t${credentialHelper('/opt/agent tools/gh')}`)
+    // Git quotes an origin whose path holds backslashes and doubles them; compare the path it names, not its quoting.
+    const origin = (await git('config', '--show-origin', '--get-all', 'credential.https://github.com.helper'))
+      .replace(/^file:"(.*?)"/, (_, path: string) => `file:${path.replaceAll('\\\\', '\\')}`)
+    expect(origin).toBe(`file:${workerGitConfig(dir)}\t${credentialHelper('/opt/agent tools/gh')}`)
     expect(await git('config', '--get-all', 'credential.helper')).toBe('')
     await expect(git('config', 'commit.gpgsign')).rejects.toThrow()
     await expect(git('config', 'core.abbrev')).rejects.toThrow()
@@ -142,9 +150,11 @@ it('fails instead of asking the operator\'s askpass helpers when the agent\'s cr
 
 it('removes every spelling of a directory from PATH and keeps the other entries', () => {
   mkdirSync(join(dir, 'state', 'worker-bin'), { recursive: true })
-  symlinkSync(join(dir, 'state'), join(dir, 'link'))
+  // A junction is what Windows creates without a privilege, and `realpath` resolves it like any other link.
+  symlinkSync(join(dir, 'state'), join(dir, 'link'), 'junction')
   const bin = join(dir, 'state', 'worker-bin')
-  expect(withoutDirectory([`${bin}/`, join(dir, 'link', 'worker-bin'), '/usr/bin', 'node_modules/.bin'].join(':'), bin)).toBe('/usr/bin:node_modules/.bin')
+  const entries = [`${bin}${sep}`, join(dir, 'link', 'worker-bin'), '/usr/bin', 'node_modules/.bin']
+  expect(withoutDirectory(entries.join(delimiter), bin)).toBe(['/usr/bin', 'node_modules/.bin'].join(delimiter))
 })
 
 /** Minimal SubprocessRuntime backed by child_process.spawn with an isolated global git config. */

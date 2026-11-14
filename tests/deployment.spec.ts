@@ -30,7 +30,8 @@ beforeEach(async () => {
   program(join(dir, 'bin', 'lark-cli'), lark({ appId: 'cli_bot', brand: 'lark', identities: { bot: { status: 'ready' } } }))
   // Stale worker shims with the same binary name must be skipped regardless of PATH normalization or symlinks.
   program(join(dir, 'state', 'worker-bin', 'gh'))
-  symlinkSync(join(dir, 'state'), join(dir, 'state-link'))
+  // A junction is what Windows creates without a privilege, and `realpath` resolves it like any other link.
+  symlinkSync(join(dir, 'state'), join(dir, 'state-link'), 'junction')
   await exec('git', ['init', '-q', join(dir, 'widgets')], { env: gitEnv() })
   await exec('git', ['-C', join(dir, 'widgets'), 'remote', 'add', 'origin', 'git@github.com:acme/widgets.git'], { env: gitEnv() })
 })
@@ -56,7 +57,9 @@ describe('configuration schema', () => {
   })
 })
 
-describe('setup', () => {
+// Setup resolves the account by running the CLIs: the stand-ins here are `#!/bin/sh` programs, which Windows cannot run.
+// The Windows CLI resolution is covered by the worker shims and .cmd companions the environment tests write.
+describe.skipIf(process.platform === 'win32')('setup', () => {
   it('reads the repository from the GitHub Source and the accounts from their CLIs, skipping the worker shims', async () => {
     const deployment = await resolveDeployment(machine(), { repository: 'acme/widgets', cli: 'gh' }, probe, path)
     expect(deployment).toMatchObject({ repository: 'acme/widgets', github: { cli: join(dir, 'bin', 'gh'), login: 'Agent-Bot', noreply: '7+Agent-Bot@users.noreply.github.com' } })
