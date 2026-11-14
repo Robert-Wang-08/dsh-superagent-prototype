@@ -60,8 +60,8 @@ export function agentVariables(stateDir: string): Record<string, string | undefi
 /** True when a regular file starts with the dsh-superagent marker in its first two lines; a symbolic link, directory, or other non-regular file never counts as written by dsh-superagent. */
 async function written(file: string): Promise<boolean> {
   if (!(await lstat(file)).isFile()) return false
-  const head = (await readFile(file, 'utf8')).split('\n', 2)
-  return [MARKER, ...LEGACY_MARKERS].some(marker => head.includes(marker))
+  const head = (await readFile(file, 'utf8')).split('\n', 2).map(line => line.replace(/\r$/, ''))
+  return [MARKER, ...LEGACY_MARKERS].some(marker => head.includes(marker) || head.includes(`rem ${marker}`))
 }
 async function own(file: string, text: string, mode = 0o644): Promise<void> {
   let foreign = false
@@ -74,9 +74,12 @@ async function own(file: string, text: string, mode = 0o644): Promise<void> {
 
 /**
  * Atomically writes worker CLI shims and the isolated git configuration file into the state directory, refusing to overwrite foreign files.
- * Each shim strips the shim directory from PATH before exec so wrapper scripts resolving `gh` or `lark-cli` by name reach the real binary.
+ * Each POSIX shim strips the shim directory from PATH before exec so wrapper scripts resolving `gh` or `lark-cli` by name reach the real binary.
+ * On Windows each shim also gets a `.cmd` companion: PowerShell and cmd resolve `gh.cmd` before the extensionless POSIX shim, which they would
+ * otherwise treat as a document and open with the shell's "Open with" dialog instead of running the agent's CLI.
  */
-export async function writeEnvironment(deployment: Pick<Deployment, 'stateDir' | 'repository' | 'github' | 'feishu'>, blockedCommands: readonly string[]): Promise<void> {
+export async function writeEnvironment(deployment: Pick<Deployment, 'stateDir' | 'repository' | 'github' | 'feishu'>, blockedCommands: readonly string[],
+  platform: NodeJS.Platform = process.platform): Promise<void> {
   const { stateDir, repository, github, feishu } = deployment
   const dir = workerBin(stateDir)
   await mkdir(dir, { recursive: true })
@@ -90,6 +93,21 @@ export async function writeEnvironment(deployment: Pick<Deployment, 'stateDir' |
     await rename(temporary, join(dir, name))
     kept.add(name)
   }
+  const cmdQuote = (value: string): string => `"${value.replaceAll('%', '%%')}"`
+  const cmdEscape = (value: string): string => value.replaceAll('%', '%%').replace(/[\^&|<>]/g, char => `^${char}`)
+  const cmdRun = (program: string): string => `${cmdQuote(program)} %*\nexit /b %ERRORLEVEL%`
+  const cmdFail = (message: string): string => `echo ${cmdEscape(message)} 1>&2\nexit /b 1`
+  const cmdShim = async (name: string, body: string): Promise<void> => {
+    const temporary = join(dir, `.${name}.cmd.${process.pid}.tmp`)
+    const text = ['@echo off', `rem ${MARKER}`, ...body.split('\n')].join('\r\n') + '\r\n'
+    await writeFile(temporary, text)
+    await rename(temporary, join(dir, `${name}.cmd`))
+    kept.add(`${name}.cmd`)
+  }
+  const writeShim = async (name: string, posix: string, cmd: string): Promise<void> => {
+    await shim(name, posix)
+    if (platform === 'win32') await cmdShim(name, cmd)
+  }
   const withoutShims = [
     `self=${shellQuote(dir)}`, 'rest=', 'IFS=:', 'set -f',
     'for entry in $PATH; do [ "$entry" = "$self" ] || rest="${rest:+$rest:}$entry"; done',
@@ -97,10 +115,12 @@ export async function writeEnvironment(deployment: Pick<Deployment, 'stateDir' |
   ].join('\n')
   const run = (program: string): string => `${withoutShims}\nexec ${shellQuote(program)} "$@"`
   const fail = (message: string): string => `echo ${shellQuote(message)} >&2\nexit 1`
-  await shim('gh', run(github.cli))
-  await shim('lark-cli', feishu ? run(feishu.cli) : fail('lark-cli is unavailable: this installation has no Feishu bot.'))
+  await writeShim('gh', run(github.cli), cmdRun(github.cli))
+  const noLark = 'lark-cli is unavailable: this installation has no Feishu bot.'
+  await writeShim('lark-cli', feishu ? run(feishu.cli) : fail(noLark), feishu ? cmdRun(feishu.cli) : cmdFail(noLark))
   for (const name of new Set(blockedCommands.filter(name => !WORKER_COMMANDS.includes(name)))) {
-    await shim(name, fail(`${name} is blocked in this installation; use gh, which acts as ${github.login}.`))
+    const message = `${name} is blocked in this installation; use gh, which acts as ${github.login}.`
+    await writeShim(name, fail(message), cmdFail(message))
   }
   for (const name of before) if (!kept.has(name)) await unlink(join(dir, name))
   await own(workerGitConfig(stateDir), [

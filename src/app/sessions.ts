@@ -260,7 +260,11 @@ export class Sessions {
     const register = this.registerTool(agent, binding)
     for (const tool of host.tools(agent, ticket)) register(tool.name, tool.description, tool.schema, tool.execute)
     if (master) {
-      binding.disposers.push(agent.ctx.tools.restrict({ allow: ['skill', 'bash', 'read', 'read_image', 'job_output', 'job_list', 'job_kill'] }),
+      // Keep only tools this host actually exposes: the preset disables tool-bash on Windows, and `tools.restrict()`
+      // refuses to name an unknown global tool, which would abort the whole plugin activation.
+      const masterTools = ['skill', 'bash', 'read', 'read_image', 'job_output', 'job_list', 'job_kill']
+        .filter(name => name !== 'bash' || process.platform !== 'win32')
+      binding.disposers.push(agent.ctx.tools.restrict({ allow: masterTools }),
         agent.ctx.tools.guard(execution => noWait(execution, () => this.routed(agent))))
     } else {
       // An Executor Session keeps the profile's work tools it has, which DSH requires to be known; its own tools are not masked.

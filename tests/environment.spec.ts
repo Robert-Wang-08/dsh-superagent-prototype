@@ -19,6 +19,9 @@ const program = (path: string, body: string): string => { writeFileSync(path, `#
 /** Worker shell environment after DSH strips credential-shaped variables. */
 const workerEnv = (env: Record<string, string | undefined>): Record<string, string> =>
   Object.fromEntries(Object.entries(env).filter((entry): entry is [string, string] => entry[1] !== undefined && !SENSITIVE_ENV_PATTERN.test(entry[0])))
+/** The files a shim directory holds: a POSIX shim per command, plus each `.cmd` companion on Windows. */
+const shims = (...names: string[]): string[] =>
+  names.flatMap(name => process.platform === 'win32' ? [name, `${name}.cmd`] : [name]).sort()
 beforeEach(() => { dir = mkdtempSync(join(tmpdir(), 'environment-')); mkdirSync(join(dir, 'real')) })
 afterEach(() => { rmSync(dir, { recursive: true, force: true }) })
 
@@ -49,7 +52,7 @@ describe('worker shims', () => {
   it('replace only what dsh-superagent wrote and refuse anything else in its places', async () => {
     await writeEnvironment(testDeployment({ stateDir: dir }), ['old-cli'])
     await writeEnvironment(testDeployment({ stateDir: dir }), [])
-    expect(readdirSync(workerBin(dir)).sort()).toEqual(['gh', 'lark-cli'])
+    expect(readdirSync(workerBin(dir)).sort()).toEqual(shims('gh', 'lark-cli'))
     // A file that merely contains the marker on a later line, a symlink to a shim, and a foreign gitconfig are all rejected.
     writeFileSync(join(workerBin(dir), 'notes'), `notes\nmore\n${readFileSync(join(workerBin(dir), 'gh'), 'utf8').split('\n')[1]}\n`)
     await expect(writeEnvironment(testDeployment({ stateDir: dir }), [])).rejects.toThrow(`${join(workerBin(dir), 'notes')} was not written by dsh-superagent`)
@@ -66,8 +69,34 @@ describe('worker shims', () => {
     const legacy = (file: string, name: string) => writeFileSync(file, readFileSync(file, 'utf8').replace('Written by dsh-superagent', `Written by ${name}`))
     legacy(join(workerBin(dir), 'old-cli'), 'dsh-tag'); legacy(join(workerBin(dir), 'older-cli'), 'dsh-freelancer'); legacy(workerGitConfig(dir), 'dsh-go')
     await writeEnvironment(testDeployment({ stateDir: dir }), [])
-    expect(readdirSync(workerBin(dir)).sort()).toEqual(['gh', 'lark-cli'])
+    expect(readdirSync(workerBin(dir)).sort()).toEqual(shims('gh', 'lark-cli'))
     expect(readFileSync(workerGitConfig(dir), 'utf8')).toContain('Written by dsh-superagent')
+  })
+})
+
+describe('Windows worker shims', () => {
+  it('write a .cmd companion that PowerShell and cmd run beside the POSIX shims', async () => {
+    const gh = join(dir, 'real', 'gh-agent.cmd')
+    writeFileSync(gh, '@echo off\r\necho gh %*\r\n')
+    const base = testDeployment()
+    const deployment = testDeployment({ stateDir: dir, github: { ...base.github, cli: gh }, feishu: undefined })
+    await writeEnvironment(deployment, ['personal-gh'], 'win32')
+    const bin = workerBin(dir)
+    expect(readdirSync(bin).sort()).toEqual(['gh', 'gh.cmd', 'lark-cli', 'lark-cli.cmd', 'personal-gh', 'personal-gh.cmd'])
+    const ghCmd = readFileSync(join(bin, 'gh.cmd'), 'utf8')
+    expect(ghCmd).toContain('rem # Written by dsh-superagent')
+    expect(ghCmd).toContain(`"${gh}" %*`)
+    expect(ghCmd).toContain('exit /b %ERRORLEVEL%')
+    if (process.platform === 'win32') {
+      const env = { ...process.env, PATH: [bin, process.env.PATH].join(';') }
+      // PowerShell and cmd resolve gh.cmd before the extensionless POSIX shim; both must run the CLI and print its output.
+      expect((await exec('cmd.exe', ['/d', '/c', join(bin, 'gh.cmd'), 'api', 'user'], { env })).stdout.trim()).toBe('gh api user')
+      expect((await exec('pwsh.exe', ['-NoProfile', '-Command', 'gh api user'], { env })).stdout.trim()).toBe('gh api user')
+      await expect(exec('cmd.exe', ['/d', '/c', join(bin, 'personal-gh.cmd')]))
+        .rejects.toMatchObject({ code: 1, stderr: expect.stringContaining('personal-gh is blocked in this installation; use gh, which acts as agent-bot.') })
+    }
+    await writeEnvironment(deployment, [], 'win32')
+    expect(readdirSync(bin).sort()).toEqual(['gh', 'gh.cmd', 'lark-cli', 'lark-cli.cmd'])
   })
 })
 
