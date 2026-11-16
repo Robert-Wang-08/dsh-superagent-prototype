@@ -39,8 +39,14 @@ it('defines the worker preset Executor Sessions run under, with a shell that mov
   expect(named('@deepseek-ai/dsh-tool-jobs')).toEqual([{ waitTimeoutMs: 5000, maxWaitTimeoutMs: 5000 }])
   expect(named('@deepseek-ai/dsh-tool-web')).toEqual([expect.objectContaining({ fetch: false })])
   // Spawned subagents run under standard, whose shell moves a command to the background only after 60 s; forked ones, which would run under
-  // this preset, are left out.
-  expect(named('@deepseek-ai/dsh-tool-subagent')).toEqual([expect.objectContaining({ provider: 'spawn', agentPreset: 'standard' })])
+  // this preset, are left out. `modelSelectionSettings` is the installed tool's only switch for child model selection: without it the
+  // `subagent` call has no `provider`/`model`/`reasoning_effort` fields, so a worker cannot route an independent review elsewhere
+  // (`modelSelection`/`modelDiscovery` are not part of the tool's schema and are silently ignored).
+  expect(named('@deepseek-ai/dsh-tool-subagent')).toEqual([expect.objectContaining({
+    provider: 'spawn', agentPreset: 'standard', modelSelectionSettings: true })])
+  for (const ignored of ['modelSelection', 'modelDiscovery']) {
+    expect(named('@deepseek-ai/dsh-tool-subagent')[0]).not.toHaveProperty(ignored)
+  }
   // What a worker needs, and none of what asks a person, presents, plans, changes the profile, schedules, sets goals or runs workflows.
   for (const name of ['@deepseek-ai/dsh-tool-fs', '@deepseek-ai/dsh-tool-fs-search', '@deepseek-ai/dsh-tool-bash', '@deepseek-ai/dsh-tool-skill',
     '@deepseek-ai/dsh-tool-todo', '@deepseek-ai/dsh-tool-subagent', '@deepseek-ai/dsh-tool-subagent-control', '@deepseek-ai/dsh-compaction-basic',
