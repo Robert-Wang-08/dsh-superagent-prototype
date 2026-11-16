@@ -88,7 +88,7 @@ Run the profile-creation command only for a new installation. If the profile alr
 
 ## Machine configuration
 
-Copy [examples/profile.cordis.patch.yml](../examples/profile.cordis.patch.yml) to `~/.dsh/profiles/superagent/cordis.patch.yml`, replacing that file, and replace every `<placeholder>`. For Feishu, also enable the `dsh-superagent-feishu` entry there. The `webserver` entry sets the panel's port.
+Copy [examples/profile.cordis.patch.yml](../examples/profile.cordis.patch.yml) to `~/.dsh/profiles/superagent/cordis.patch.yml`, replacing that file, and replace every `<placeholder>`. For Feishu, also enable the `dsh-superagent-feishu` entry there. The `webserver` entry sets the panel's port. The example also installs the `subagent-model-selection-settings` row: an Executor Session's `subagent` tool mounts only when that Host policy row exists. Enable it and list the provider/model routes an Executor may select for a delegated child; while it is disabled, a worker's subagent inherits the worker's own model.
 
 | Key | Required | Meaning |
 | --- | --- | --- |

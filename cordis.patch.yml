@@ -101,13 +101,17 @@
             config:
               - id: tool-subagent-control
                 name: '@deepseek-ai/dsh-tool-subagent-control'
+              # `modelSelectionSettings` is the only key that turns on child model selection; the tool
+              # then also exposes `provider`, `model` and `reasoning_effort`, restricted to the routes
+              # the Host's `subagent-model-selection-settings` records for the Session. A typo here
+              # (e.g. `modelSelection`) leaves the tool without those fields, so a worker cannot route
+              # an independent review to another provider/model.
               - id: tool-subagent
                 name: '@deepseek-ai/dsh-tool-subagent'
                 config:
                   provider: spawn
                   toolName: subagent
-                  modelSelection: true
-                  modelDiscovery: true
+                  modelSelectionSettings: true
                   agentPreset: standard
           - id: tool-todo
             name: '@deepseek-ai/dsh-tool-todo'

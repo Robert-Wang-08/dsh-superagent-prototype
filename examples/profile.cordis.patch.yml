@@ -10,3 +10,12 @@
 # Feishu is optional: uncomment to enable its Source, then set the bot's lark-cli on the Feishu Source.
 # - id: dsh-superagent-feishu
 #   disabled: false
+# An Executor Session's `subagent` tool needs this Host-scope policy row to mount; without it the worker
+# preset's subagent tool fails to mount. Set `enabled: true` and list the exact provider/model routes an
+# Executor may select for a delegated child (for example `{ provider: codex-relay, model: gpt-6.1-sol }`).
+- insert:
+    - id: subagent-model-selection-settings
+      name: '@deepseek-ai/dsh-tool-subagent/model-selection-settings'
+      config:
+        enabled: false
+        allowedModels: []
