@@ -161,7 +161,7 @@ Each kind of work reports an error among the overview's system problems only aft
 Relays to the main Session keep their order, and so do notices; a failed one holds back the later ones of its kind.
 ### Source failure
 
-The GitHub Source reads each Issue, pull request and Thread on its own: a failed read keeps its error on its Thread, is read again on the next poll, and counts towards an error of the Source, which it reports after three failed polls in a row by default; any successful poll resets the count.
+The GitHub Source reads each Issue, pull request and Thread on its own: a read that fails in transit (such as a TLS reset or EOF through a proxy) is repeated once after a short wait, so one interrupted connection does not fail the poll; a write is never repeated, because it may already have applied. A read that still fails keeps its error on its Thread, is read again on the next poll, and counts towards an error of the Source, which it reports after three failed polls in a row by default; any successful poll resets the count.
 
 GitHub answers 404 also when the agent lost access to a private repository, so a 404 is retried.
 
