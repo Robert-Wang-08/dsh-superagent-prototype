@@ -128,7 +128,7 @@ it('lists the settings groups stages first, opens each stage\'s group from its s
   async () => {
   await mount()
   await click(tab(zh['tab.settings']))
-  expect(all('.dt-settings-link').map(link => link.textContent)).toEqual(['来源', '评估', '执行', '提示词', '部署'])
+  expect(all('.dt-settings-link').map(link => link.textContent)).toEqual(['来源', '评估', '执行', '沟通', '提示词', '部署'])
   expect(document.querySelector('.dt-settings-link[aria-current="page"]')?.textContent).toBe(zh['term.source'])
   for (const [tab, group] of [['来源', '来源'], ['评估', '评估'], ['执行', '执行']] as const) {
     await click(find(tab, '[role="tab"]'))
@@ -144,4 +144,22 @@ it('lists the settings groups stages first, opens each stage\'s group from its s
   await remount()
   await click(tab(zh['tab.settings']))
   expect(document.querySelector('.dt-settings-link[aria-current="page"]')?.textContent).toBe(zh['promptPart.runtime/work'])
+})
+
+it('turns the communication mirror on from the Communication settings and shows the document it appends to', async () => {
+  await mount()
+  await click(tab(zh['tab.settings']))
+  await click(zh['settingsGroup.communication'])
+  const toggle = find(zh.mirrorEnabled, '[role="switch"]')
+  await click(toggle)
+  await click(zh.save)
+  expect(server.settings.mirror).toEqual({ enabled: true, folder: '', share: [] })
+  expect(server.requests.filter(request => request.method === 'PUT').map(request => request.path)).toEqual(['settings/mirror'])
+  // Until the host opens it, the page says so; once it has, the page links to it.
+  expect(document.body.textContent).toContain(zh.mirrorNone)
+  server.mirrorDoc = { token: 'doc-1', url: 'https://feishu.example/doc-1', at: '2026-09-23T00:00:00Z' }
+  await remount()
+  await click(tab(zh['tab.settings']))
+  await click(zh['settingsGroup.communication'])
+  expect(document.querySelector('a[href="https://feishu.example/doc-1"]')?.textContent).toBe(zh.mirrorOpen)
 })

@@ -96,15 +96,26 @@ export const ExecutorConfigSchema = z.object({
   blockedCommands: z.array(CommandNameSchema).default([]),
 }).strict()
 export const SourceInstanceSchema = z.object({ enabled: z.boolean().default(true), config: z.record(z.string(), z.unknown()).default({}) }).strict()
+/**
+ * Communication mirroring: while on, people's messages and the agent's messages are appended to one Feishu document,
+ * a new one each time it is turned on. `folder` is the Drive folder token to create it in (empty: the bot's own Drive),
+ * and `share` lists the open IDs granted view access (empty: the senders the Feishu Policy allows).
+ */
+export const MirrorConfigSchema = z.object({
+  enabled: z.boolean().default(false),
+  folder: z.string().trim().max(200).default(''),
+  share: z.array(z.string().trim().min(1).max(100)).max(50).default([]),
+}).strict()
 export const SettingsSchema = z.object({
   paused: z.boolean().default(false),
   sources: z.record(z.string().regex(/^[a-z][a-z0-9-]*$/), SourceInstanceSchema).default({}),
   policy: PolicyConfigSchema.default(() => PolicyConfigSchema.parse({})),
   eval: EvalConfigSchema.default(() => EvalConfigSchema.parse({})),
   executor: ExecutorConfigSchema.default(() => ExecutorConfigSchema.parse({})),
+  mirror: MirrorConfigSchema.default(() => MirrorConfigSchema.parse({})),
 }).strict()
 export type Settings = z.infer<typeof SettingsSchema>
-export type SettingsBlock = 'policy' | 'eval' | 'executor' | `source:${string}`
+export type SettingsBlock = 'policy' | 'eval' | 'executor' | 'mirror' | `source:${string}`
 export type SettingsSave = SettingsBlock | 'pause'
 export type SettingsOrigin = 'panel' | 'tool' | 'sync'
 
