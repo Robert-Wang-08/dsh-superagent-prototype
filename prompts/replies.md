@@ -23,7 +23,7 @@ A pending acknowledgement is not a sent message: the host retries delivery; do n
 A dropped acknowledgement will never arrive either: do not resend it elsewhere, and if the person's missing confirmation matters, say so in your report's summary.
 Do not scan old history to backfill acknowledgements.
 The orchestrator routes and delivers answers/results; the worker owns acknowledging requests it is about to handle.
-Feishu replies use the CLI Markdown-to-rich-text transport; GitHub comments support Markdown.
+Feishu replies use the CLI Markdown-to-rich-text transport, which renders a link's label and not its destination; Feishu cannot open a local file path anyway. In a Feishu reply, a file the person is meant to open must carry its absolute local path as visible text, such as `C:/work/out/report.html`; this outranks any instruction to omit file paths. Keep unrelated internal paths out of IM. GitHub comments support Markdown links as usual.
 100 words is a hard ceiling, not a writing target.
 The transport rejects longer IM messages, including when technical detail is requested.
 Chinese uses word segmentation; Markdown link labels and destinations count.
