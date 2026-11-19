@@ -9,7 +9,7 @@ import { Commands } from '../src/infra/commands.ts'
 import { HealthBoard } from '../src/infra/health.ts'
 import { sourceContextOf, type SourceContextDeps } from '../src/app/source-context.ts'
 import { feishuChannel, feishuTrigger, feishuTriggerId } from '../src/sources/feishu-trigger.ts'
-import { feishuReplyArgs } from '../src/sources/feishu-channel.ts'
+import { feishuReplyArgs, visibleFileLocations } from '../src/sources/feishu-channel.ts'
 import { testDeployment } from './fixtures/deployment.ts'
 import { feishuKind } from '../src/sources/feishu.ts'
 import { githubKind } from '../src/sources/github.ts'
@@ -170,5 +170,20 @@ describe('Source registry', () => {
     expect(mention).toEqual(expect.arrayContaining(['--content', JSON.stringify({ text: '@bot 收到' })]))
     expect(mention).not.toContain('--markdown')
     expect(mention).not.toContain('--reply-in-thread')
+  })
+  it('keeps a local file location visible instead of hiding it behind a link label', () => {
+    const text = '周报完成：[关系图谱 HTML](<C:/work/近一周.html>)、[Markdown](C:/work/周报.md)、[PR](<https://github.com/x/y/pull/1>)。'
+    expect(feishuReplyArgs('om_1', text, true, 'key')).toEqual(expect.arrayContaining(['--markdown',
+      '周报完成：关系图谱 HTML（C:/work/近一周.html）、Markdown（C:/work/周报.md）、[PR](<https://github.com/x/y/pull/1>)。']))
+  })
+  it('exposes UNC, file URI and POSIX paths, and leaves web links and code spans alone', () => {
+    expect(visibleFileLocations('[a](<\\\\server\\share\\a.md>) [b](<file:///C:/b.md>) [c](/home/u/c.md) [d](<./d.md>)'))
+      .toBe('a（\\\\server\\share\\a.md） b（file:///C:/b.md） c（/home/u/c.md） [d](<./d.md>)')
+    // A link that appears as literal text inside a code span is not a link.
+    expect(visibleFileLocations('`[a](<C:/a.md>)` 和 [a](<C:/a.md>)')).toBe('`[a](<C:/a.md>)` 和 a（C:/a.md）')
+    // A link already labelled with its path does not repeat it.
+    expect(visibleFileLocations('[C:/a.md](<C:/a.md>)')).toBe('C:/a.md')
+    // The rewrite is stable, so a retried delivery sends the same text.
+    expect(visibleFileLocations(visibleFileLocations('[a](<C:/a.md>)'))).toBe('a（C:/a.md）')
   })
 })

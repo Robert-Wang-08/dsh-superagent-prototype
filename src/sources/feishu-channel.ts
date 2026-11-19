@@ -16,14 +16,40 @@ export const feishuChatLink = (brand: 'feishu' | 'lark', chatId: string): string
 const gone = (error: unknown): boolean => error instanceof CliError && error.code !== undefined && (error.code === 230011
   || /withdrawn/i.test(error.message) || (Math.floor(error.code / 100) === 2300 && /not found/i.test(error.message)))
 /**
+ * A Markdown link whose destination is an absolute local path: a drive letter, a UNC share, a `file:` URI or a
+ * POSIX absolute path. `lark-cli --markdown` hands Feishu a post Markdown node, which renders only a link's label;
+ * Feishu cannot open a local destination, so the path would stay invisible exactly where it is needed.
+ */
+const LOCAL_FILE_LINK = /\[([^\]\n]+)\]\((?:<([^>\n]+)>|([^()\s]+))\)/g
+/** A fenced code block or an inline code span, whose Markdown links are literal text and stay untouched. */
+const CODE_SPAN = /(```[\s\S]*?```|`[^`\n]*`)/g
+const isLocalFilePath = (target: string): boolean => /^(?:[a-z]:[\\/]|\\\\|file:\/\/|\/(?!\/))/i.test(target)
+/**
+ * Exposes the location of every local-file link: `[report](<C:/out/report.html>)` becomes
+ * `report（C:/out/report.html）`, so a Feishu reply never hides a deliverable behind a link label. Web links and
+ * code spans keep their Markdown; the result is stable under a second pass, and the rewrite changes only punctuation,
+ * so the IM word count of the message stays as it was.
+ */
+export function visibleFileLocations(text: string): string {
+  return text.split(CODE_SPAN).map((part, index) => index % 2 ? part
+    : part.replace(LOCAL_FILE_LINK, (match: string, label: string, angle: string | undefined, bare: string | undefined) => {
+      const target = angle ?? bare ?? ''
+      if (!isLocalFilePath(target)) return match
+      // Do not repeat a path already used as the label.
+      return label === target || label.includes(target) ? label : `${label}（${target}）`
+    })).join('')
+}
+/**
  * Builds the `lark-cli` arguments for one reply.
  * - A direct conversation has no topic stream, and Feishu answers `reply_in_thread` there with its generic internal
  *   error (2200), so the flag is sent only to group chats (recorded as `direct: 'true'` on the address).
  * - `lark-cli` reads a flag value that starts with `@` as a file reference, so a reply opening with a mention goes
  *   through `--content` as a text message instead of `--markdown`.
+ * - A local-file link keeps its destination in the visible text, because the post Markdown node shows only its label.
  */
 export function feishuReplyArgs(messageId: string, text: string, direct: boolean, idempotencyKey: string): string[] {
-  const body = text.startsWith('@') ? ['--content', JSON.stringify({ text })] : ['--markdown', text]
+  const visible = visibleFileLocations(text)
+  const body = visible.startsWith('@') ? ['--content', JSON.stringify({ text: visible })] : ['--markdown', visible]
   const topic = direct ? [] : ['--reply-in-thread']
   return ['im', '+messages-reply', '--message-id', messageId, ...body, ...topic, '--idempotency-key', idempotencyKey]
 }
@@ -31,7 +57,7 @@ export function feishuReplyArgs(messageId: string, text: string, direct: boolean
 export async function sendFeishu(host: Pick<SourceContext, 'commands'>, message: OutboundMessage): Promise<'sent' | 'gone'> {
   const messageId = message.channel.address.messageId
   if (!messageId) throw new Error('Missing Feishu reply target')
-  const text = checkedImText(message.text)
+  const text = checkedImText(visibleFileLocations(message.text))
   const reply = feishuReplyArgs(messageId, text, message.channel.address.direct === 'true', message.id)
   try { await host.commands.lark(reply) }
   catch (error) {

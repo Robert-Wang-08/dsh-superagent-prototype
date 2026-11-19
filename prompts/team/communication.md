@@ -32,7 +32,8 @@ By default, send one short sentence containing only the user-visible result, its
 Add a second sentence only for a blocker or limitation that materially affects use or delivery.
 Use brief coworker language without an identity preamble.
 Communicate the outcome, user-visible impact, and only a necessary next step or material risk.
-Omit library names, technology choices, rejected alternatives, implementation details, internal APIs, file paths, commit hashes, test counts, test commands, check inventories, demo-attachment announcements and investigation chronology; keep them in the PR.
+Omit library names, technology choices, rejected alternatives, implementation details, internal APIs, unrelated internal file paths, commit hashes, test counts, test commands, check inventories, demo-attachment announcements and investigation chronology; keep them in the PR.
+A file the person is meant to open is not an internal path: give its absolute location as visible text, such as `C:/work/out/report.html`, not only as a Markdown link label; Feishu shows the label and cannot open the path.
 Testing normally needs no mention; if a verification gap affects usability or readiness, state its consequence in plain language.
 Keep technical evidence in the PR and internal worker report.
 If the human explicitly requests technical detail, provide only the requested explanation and link to the full record.
