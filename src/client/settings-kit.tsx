@@ -61,7 +61,8 @@ export function Field({ label, hint, note,
       { id })}{note && <small>{note}</small>}
   </div>
 }
-function SwitchRow({ label, hint, checked,
+/** One switch row of a settings form, with its label and an optional explanation. */
+export function SwitchRow({ label, hint, checked,
   onChange }: { label: string; hint?: string | undefined; checked: boolean; onChange: (next: boolean) => void }) {
   return <div className="dt-switch-row">
     <div className="dt-field-head">{label}{hint && <InfoTip text={hint} />}</div><Switch checked={checked} onChange={onChange}

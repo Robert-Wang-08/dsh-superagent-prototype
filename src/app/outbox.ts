@@ -11,6 +11,8 @@ export interface OutboxHost {
   readonly effects: Pick<Effects, 'enqueue' | 'cancel' | 'handle' | 'idle'>
   readonly sources: Pick<SourceRegistry, 'instance' | 'channelAllowed' | 'send'>
   readonly commands: Commands
+  /** Told about each new message so the communication mirror can append it; absent when nothing mirrors. */
+  readonly mirror?: (message: OutboundMessage) => void
   paused(): boolean
 }
 
@@ -27,8 +29,8 @@ export class Outbox implements OutboxPort {
   send(message: OutboundMessage): void {
     // Validate IM reply length here; acknowledgements are already validated when decided.
     if (message.kind === 'reply' && message.channel.source === 'feishu') checkedImText(message.text)
-    const { store, effects } = this.host
-    store.atomic(() => { if (store.receipts.add(message)) effects.enqueue('reply', message.id, {}) })
+    const { store, effects, mirror } = this.host
+    store.atomic(() => { if (store.receipts.add(message)) { effects.enqueue('reply', message.id, {}); mirror?.(message) } })
   }
   status(id: string): ReplyStatus | undefined { return this.host.store.receipts.get(id)?.status }
   withdraw(id: string): void {
