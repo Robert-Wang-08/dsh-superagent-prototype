@@ -731,6 +731,7 @@ const TEXT = {
   'userError.notAttention': ['待人工决定的消息需要在 human_action 中写明工单当前待人工决定的问题。日常未完成的工作只在内部保留。', USER_ERRORS.notAttention[1]],
   'userError.notQuestion': ['回答必须针对最初由人提出的问题，而不是执行器报告或自动触发。', USER_ERRORS.notQuestion[1]],
   'userError.noAnswer': ['执行器还没有回答这条人发的触发。请等待执行器的报告，或用 orchestrator_ticket_request_status 请求一份（它只对处于等待状态的执行器起作用）；普通进展不能当作回答。', USER_ERRORS.noAnswer[1]],
+  'userError.progressAnswered': ['这条问题已经用进度更新答复过，不要再补发执行器的回答。', USER_ERRORS.progressAnswered[1]],
   'userError.noChannel': ['这个工单或触发没有可以回复的渠道。', USER_ERRORS.noChannel[1]],
   'userError.panelOnlyEnvironment': ['执行环境（执行目录、准备命令、禁止调用的命令）只能在管理页修改。', USER_ERRORS.panelOnlyEnvironment[1]],
   'userError.panelOnlyAccounts': ['部署检查读取的来源字段（例如账号 CLI）只能在管理页修改。', USER_ERRORS.panelOnlyAccounts[1]],

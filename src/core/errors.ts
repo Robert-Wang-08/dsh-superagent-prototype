@@ -33,6 +33,7 @@ export const USER_ERRORS = {
   notAttention: ['refused', 'Attention requires the ticket\'s current attention question in human_action. Routine unfinished work stays internal.'],
   notQuestion: ['refused', 'An answer must target the original human question, not a worker report or automated trigger'],
   noAnswer: ['refused', 'No worker answer is ready for this human trigger. Wait for the worker\'s report, or request one with orchestrator_ticket_request_status, which acts only on a worker that reported waiting; ordinary progress cannot be relabelled as an answer.'],
+  progressAnswered: ['refused', 'This question was already answered as a progress update; do not send the worker\'s answer to it again'],
   noChannel: ['refused', 'No reply channel for this ticket or trigger'],
   panelOnlyEnvironment: ['refused', 'The execution environment (ticket directory, prepare command, blocked commands) can only be changed in the management panel'],
   panelOnlyAccounts: ['refused', 'Source fields that setup reads, such as account CLIs, can only be changed in the management panel'],
