@@ -57,6 +57,12 @@ it('assembles every role from fixed sections around the team sections, whatever 
   expect(composePrompt(config, 'worker')).not.toContain(mainAdmissionPolicy)
 })
 
+it('tells both roles that only the reply tool reaches a person, and how a worker answer is sent', () => {
+  expect(sharedPrompt).toContain('Only orchestrator_reply delivers a message to a person')
+  expect(sharedPrompt).toContain('A worker report that names answer_to answers that person\'s question')
+  expect(sharedPrompt).toContain('stays internal')
+})
+
 it('reads a prompt file whatever its line ends and blank lines, and names a missing or empty one', () => {
   const dir = mkdtempSync(join(tmpdir(), 'prompt-file-'))
   // promptFile resolves paths relative to prompts/; use a relative path to reach the temp dir.

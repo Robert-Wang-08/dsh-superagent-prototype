@@ -417,6 +417,17 @@ it('relays a worker\'s report with its ticket card and the start of its summary,
   expect(notices().at(-1)).toMatchObject({ ticket_ended: { ticket_id: ticket.id, state: 'completed' } })
 })
 
+it('tells the main Session to send a worker\'s answer through the reply tool, never as assistant text', async () => {
+  const { ticket, sessionId } = await h.acceptedTicket(feishu('1', '@bot 修一下回归'))
+  const question = feishu('2', '现在处理到哪了？', { mentions: [], root_id: 'om_1' })
+  h.runtime.receive(question); await h.runtime.idle()
+  await h.runTool(sessionId, 'orchestrator_report', { state: 'progress', summary: '还没完成：审批到 19/428，剩 409。', human_action: null, reply_to_trigger_id: question.id })
+  await h.runtime.idle()
+  expect(relaysOf('worker_report').at(-1)).toMatchObject({ answer_to: question.id, state: 'progress',
+    note: expect.stringContaining('orchestrator_reply purpose=answer') })
+  expect(h.runtime.store.tickets.get(ticket.id)!.answers).toContain(question.id)
+})
+
 it('tells the main Session of the settings, prompts, requeues and unsubscriptions others made, never of its own', async () => {
   const save = (args: Record<string, unknown>) => h.runTool(h.runtime.masterId, 'orchestrator_settings_save', args)
   const evaluation = h.runtime.store.settings().eval

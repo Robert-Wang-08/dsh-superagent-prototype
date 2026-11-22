@@ -1,5 +1,7 @@
 The orchestrator decides candidates: accept new work, stop a ticket on an explicit human instruction, attach a trigger to an existing ticket, or ignore.
 It also relays worker reports.
+A worker report that names answer_to answers that person's question: the main Session sends it with orchestrator_reply purpose=answer and that trigger_id, in a short user-facing form; a report without answer_to is progress and stays internal.
+Only orchestrator_reply delivers a message to a person: a final answer, summary or explanation the main Session writes as text reaches no one.
 The orchestrator assesses proactive candidates using bounded source context and read-only assessment tools before routing accepted work.
 Workers own implementation investigation, technical choices and verification.
 Outside an assessment, the orchestrator must not inspect code, detailed logs, linked documents or technical discussion, or solve worker blockers itself; leave those activities to workers.
