@@ -8,30 +8,32 @@ import { EnginePart } from './part.ts'
 
 /**
  * A message for a Channel, by purpose: an Executor's acknowledgement of a person's request it works on, the answer to a
- * person's question once the worker reported it, the result of a ticket that is `ready`, `completed`, `merged`, or `dropped`,
- * or the ticket's current `question` for a person (`attention`). When `ticketId` is omitted, the ticket that `triggerId` reached is used.
+ * person's question once the worker reported it, a progress update for a person's progress question taken from the ticket's
+ * recorded state (`progress`), the result of a ticket that is `ready`, `completed`, `merged`, or `dropped`, or the ticket's
+ * current `question` for a person (`attention`). When `ticketId` is omitted, the ticket that `triggerId` reached is used.
  */
 export type ReplyRequest =
   | { purpose: 'acknowledgement'; ticketId: string; triggerId: string; text: string }
-  | { purpose: 'answer' | 'result' | 'attention'; ticketId?: string; triggerId?: string; question?: string; text: string }
+  | { purpose: 'answer' | 'progress' | 'result' | 'attention'; ticketId?: string; triggerId?: string; question?: string; text: string }
 /** A queued message: its id, whether it went out, and whether an earlier request had queued it already. */
 export interface Reply { id: string; status: ReplyStatus; reused: boolean }
 
 /**
  * Replies writes the Engine's messages to Channels through the Outbox port: an acknowledgement, the answer to a person's
- * question, a ticket's result, and its question for a person, each only when its rule allows it, under a deterministic id
- * that keeps it from going out twice (idempotent). The Engine routes `reply` here; Tickets asks it for the acknowledgement
- * an accept carries, and Assignments asks it to withdraw a question a report replaced.
+ * question, a progress update for a person's progress question, a ticket's result, and its question for a person, each only
+ * when its rule allows it, under a deterministic id that keeps it from going out twice (idempotent). The Engine routes
+ * `reply` here; Tickets asks it for the acknowledgement an accept carries, and Assignments asks it to withdraw a question a
+ * report replaced.
  */
 export class Replies extends EnginePart {
   /**
-   * Queue a message for the Channel its purpose names: an acknowledgement or an answer goes where that person's message was
-   * written, attention where the message that raised the question was (or to the ticket's starting conversation), and a
-   * result to the conversation where the ticket started (`result` is allowed only for a ticket in `ready`, `completed`,
-   * `merged`, or `dropped`). Each message is queued at most once (idempotent). An acknowledgement, even one already queued,
-   * records that the ticket's worker took the message up.
+   * Queue a message for the Channel its purpose names: an acknowledgement, an answer and a progress update go where that
+   * person's message was written, attention where the message that raised the question was (or to the ticket's starting
+   * conversation), and a result to the conversation where the ticket started (`result` is allowed only for a ticket in
+   * `ready`, `completed`, `merged`, or `dropped`). Each message is queued at most once (idempotent). An acknowledgement, even
+   * one already queued, records that the ticket's worker took the message up.
    * @throws UserError when the ticket or trigger is unknown or the purpose's rule refuses it, such as a result of a ticket
-   * that is not ready, completed, merged, or dropped.
+   * that is not ready, completed, merged, or dropped, or an answer to a question already answered as a progress update.
    */
   reply(request: ReplyRequest): Reply {
     return request.purpose === 'acknowledgement' ? this.acknowledge(request) : this.answer(request)
@@ -66,6 +68,8 @@ export class Replies extends EnginePart {
     if (request.triggerId && !trigger) throw new UserError('unknownTrigger')
     const ticket = request.ticketId ? this.require(request.ticketId)
       : trigger ? this.repo.tickets.list().find(item => this.reaches(item, trigger)) : undefined
+    // A progress question is answered from recorded state, so it never needs the worker's answer or the ticket's thread.
+    if (request.purpose === 'progress') return this.progress(request, trigger, ticket)
     if (request.purpose === 'result') {
       const outcome = ticket && ticketOutcome(ticket)
       const reported = !!ticket && liveTicket(ticket) && latestAssignment(ticket)?.report?.state === 'ready'
@@ -76,6 +80,9 @@ export class Replies extends EnginePart {
     // Attention replies must match the ticket's currently open question text.
     if (request.purpose === 'attention' && (!attention || attention.question !== request.question)) throw new UserError('notAttention')
     if (request.purpose === 'answer' && !trigger?.human) throw new UserError('notQuestion')
+    // The progress update already answered this question, so the worker's later answer is not sent on top of it.
+    const progress = trigger ? this.options.outbox.status(key('progress', trigger.id)) : undefined
+    if (request.purpose === 'answer' && (progress === 'pending' || progress === 'sent')) throw new UserError('progressAnswered')
     const id = attention ? key('attention-reply', attention.id) : key('reply', trigger?.id ?? ticket?.id ?? '', request.text)
     const existing = this.options.outbox.status(id)
     const ready = !ticket || !trigger || ticket.answers?.includes(trigger.id)
@@ -88,6 +95,21 @@ export class Replies extends EnginePart {
       ticket.answers = ticket.answers.filter(item => item !== trigger.id)
       this.repo.tickets.save(ticket)
     }
+    return { id, status: this.options.outbox.status(id) ?? 'pending', reused: existing !== undefined }
+  }
+  /**
+   * Queue the progress update a person's progress question is answered with, where they asked it, from the ticket's latest
+   * recorded state. It needs neither the worker's answer nor the question to have reached the ticket, so a progress check is
+   * tracking rather than new work; the worker's later answer to the same question is refused instead of sent again.
+   */
+  private progress(request: Exclude<ReplyRequest, { purpose: 'acknowledgement' }>, trigger: Trigger | undefined, ticket: Ticket | undefined): Reply {
+    if (!trigger) throw new UserError('unknownTrigger')
+    if (!ticket) throw new UserError('unknownTicket')
+    if (!trigger.human) throw new UserError('notQuestion')
+    if (!trigger.channel) throw new UserError('noChannel')
+    const id = key('progress', trigger.id)
+    const existing = this.options.outbox.status(id)
+    this.options.outbox.send({ id, channel: trigger.channel, text: request.text, kind: 'reply', ticketId: ticket.id })
     return { id, status: this.options.outbox.status(id) ?? 'pending', reused: existing !== undefined }
   }
   /** The conversation a ticket started in: its origin Trigger's Channel, else its first Channel. */

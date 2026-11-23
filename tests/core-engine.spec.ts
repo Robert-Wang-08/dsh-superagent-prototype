@@ -1048,6 +1048,27 @@ describe('replies', () => {
     expect(h.engine.reply({ purpose: 'result', ticketId, text: 'Done' })).toMatchObject({ status: 'pending' })
     expect(h.outbox.at(-1)!.channel).toEqual(trigger('1').channel)
   })
+  it('answers a progress question from the ticket\'s recorded state without a worker answer, and settles that question there', () => {
+    const h = harness()
+    const ticketId = accepted(h).ticketId!
+    // The progress question arrived on a thread no ticket follows: it is tracking, not new work.
+    const asked = trigger('2', { actor: guest, threads: [{ source: 'chat', id: 't9' }], channel: { source: 'chat', thread: 't9', address: { message: '2' } } })
+    expect(h.engine.receive(asked)).toBe('stored')
+    expect(h.engine.reply({ purpose: 'progress', ticketId, triggerId: '2', text: 'Still running: 19/428.' }))
+      .toEqual({ id: key('progress', '2'), status: 'pending', reused: false })
+    expect(h.outbox.at(-1)).toMatchObject({ channel: asked.channel, text: 'Still running: 19/428.', kind: 'reply', ticketId })
+    // One question gets one progress update, and asking again reuses it.
+    expect(h.engine.reply({ purpose: 'progress', ticketId, triggerId: '2', text: 'Still running: 19/428.' })).toMatchObject({ reused: true })
+    // Once a progress update answered a question, the worker's later answer to it is refused rather than sent again.
+    h.engine.receive(trigger('4'))
+    expect(h.engine.reply({ purpose: 'progress', ticketId, triggerId: '4', text: 'Still running: 20/428.' })).toMatchObject({ reused: false })
+    h.engine.report(ticketId, { state: 'progress', summary: 'Still running', answers: '4' })
+    expect(() => h.engine.reply({ purpose: 'answer', triggerId: '4', text: 'Still running' })).toThrow(new UserError('progressAnswered'))
+    // A bot's message is no person's question, and an unknown ticket is refused.
+    h.engine.receive(trigger('5', { human: false }))
+    expect(() => h.engine.reply({ purpose: 'progress', ticketId, triggerId: '5', text: 'x' })).toThrow(new UserError('notQuestion'))
+    expect(() => h.engine.reply({ purpose: 'progress', ticketId: 'nope', triggerId: '2', text: 'x' })).toThrow(new UserError('unknownTicket'))
+  })
 })
 describe('ticket commands', () => {
   it('ends a ticket by the same rule on a close and on a ready report: once no PR it opened is open, as the latest of them ended', () => {

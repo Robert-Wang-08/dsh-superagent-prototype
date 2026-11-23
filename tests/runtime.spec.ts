@@ -320,6 +320,22 @@ it('accepts silently under a rule that says so, gives the worker the rule proced
   expect(await runTool(runtime.masterId, 'orchestrator_reply', { ticket_id: ticket.id, purpose: 'result', text: '看到这个问题我试了一下，能复现，修复需要较大改动，已记在 #123。' })).toEqual({ status: 'sent' })
 })
 
+it('answers a progress question from the ticket\'s recorded state, without a worker answer or new work', async () => {
+  const { ticket } = await acceptedTicket()
+  await runTool(`worker-${ticket.id}`, 'orchestrator_report', { state: 'progress', summary: '第 19/428 题进行中' })
+  const question = feishu('77', '是否处理完了', { mentions: [] })
+  await receive(question)
+  expect(await runTool(runtime.masterId, 'orchestrator_reply', { ticket_id: ticket.id, trigger_id: question.id, purpose: 'progress',
+    text: '还在跑：第 19/428 题，等你的回复。' })).toEqual({ status: 'sent' })
+  // The update goes where the person asked, from the ticket's own record, and the question starts no work.
+  expect(runtime.store.receipts.get(key('progress', question.id))).toMatchObject({ channel: question.channel, text: '还在跑：第 19/428 题，等你的回复。', ticketId: ticket.id })
+  expect(runtime.store.tickets.list()).toHaveLength(1)
+  // The same question answered again reuses that one update.
+  expect(await runTool(runtime.masterId, 'orchestrator_reply', { ticket_id: ticket.id, trigger_id: question.id, purpose: 'progress', text: '还在跑。' }))
+    .toEqual({ status: 'sent' })
+  expect(runtime.store.receipts.get(key('progress', question.id))!.text).toBe('还在跑：第 19/428 题，等你的回复。')
+})
+
 it('records worker reports, binds the task PR, ends the ticket on ready without a PR, and relays attention', async () => {
   const { ticket, sessionId } = await acceptedTicket()
   deliveries.mockClear()
