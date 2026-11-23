@@ -7,6 +7,10 @@ import type { Deployment } from '../deployment.ts'
 
 const exec = promisify(execFile)
 const TIMEOUT_MS = 90_000
+/** How long to wait before repeating one GitHub read that failed in transit. */
+const RETRY_MS = 1_500
+/** `gh api` flags that make the call a write; a transport failure of a write may already have applied it. */
+const WRITE_FLAGS = new Set(['--method', '-X', '-f', '--field', '--raw-field', '--input'])
 /**
  * Error thrown by Commands when a CLI invocation fails, capturing stderr diagnostics, API error codes, and exit status without echoing command arguments.
  * Source channels and pollers inspect its code to distinguish deleted conversations from retryable failures.
@@ -52,6 +56,15 @@ function membership(error: unknown): unknown {
   const hint = 'The Feishu bot is not a member of the chat. Add the bot in the chat settings, then retry.'
   return new CliError(hint, error.code, error.exitCode)
 }
+/** True when repeating the call cannot duplicate an effect, so a failure in transit may be retried. */
+function reading(args: readonly string[]): boolean { return !args.some(arg => WRITE_FLAGS.has(arg)) }
+/**
+ * True for a failure in transit: gh exited non-zero without an HTTP status, and the command neither timed out nor was
+ * stopped by a signal. A failed TLS handshake or connection reset (EOF) reaches here; a 404, 410 or 304 does not.
+ */
+function inTransit(error: unknown): boolean {
+  return error instanceof CliError && error.code === undefined && error.exitCode !== undefined
+}
 /**
  * Executes gh, lark-cli, and git subprocesses with deployment account credentials, timeouts, and abort signals.
  * Restricts GitHub API calls to the configured repository and translates CLI failures into CliError instances for Sources, MasterAssessor, Outbox, and Settings.
@@ -75,6 +88,19 @@ export class Commands {
   /** Runs the agent's GitHub CLI and parses its JSON output; callers should prefer `api`, which is restricted to the configured repository and validates output. */
   async gh<T>(args: string[]): Promise<T> { return JSON.parse(await this.run(this.deployment.github.cli, args)) as T }
   /**
+   * Runs one GitHub read, repeating it once after a short wait when the command failed in transit (such as a TLS
+   * reset or EOF); writes, HTTP errors, timeouts and aborted polls are never repeated.
+   */
+  private async retried<T>(args: readonly string[], run: () => Promise<T>): Promise<T> {
+    if (!reading(args)) return run()
+    try { return await run() } catch (error) {
+      if (!inTransit(error) || this.signal.aborted) throw error
+      await new Promise(resolve => setTimeout(resolve, RETRY_MS))
+      if (this.signal.aborted) throw error
+      return run()
+    }
+  }
+  /**
    * Calls the GitHub API on a path within the configured repository, validating JSON output when a schema is provided
    * or returning raw CLI output (such as raw files or `--include` headers) when omitted.
    * @throws CliError with GitHub's HTTP status as `code` on failure.
@@ -82,13 +108,14 @@ export class Commands {
   async api<T>(schema: z.ZodType<T>, path: string, ...flags: string[]): Promise<T>
   async api(path: string, ...flags: string[]): Promise<string>
   async api<T>(schema: z.ZodType<T> | string, ...rest: string[]): Promise<T | string> {
-    if (typeof schema === 'string') return this.run(this.deployment.github.cli, ['api', this.path(schema), ...rest])
+    if (typeof schema === 'string') return this.retried(rest, () => this.run(this.deployment.github.cli, ['api', this.path(schema), ...rest]))
     const [path = '', ...flags] = rest
-    return schema.parse(await this.gh(['api', this.path(path), ...flags]))
+    return schema.parse(await this.retried(flags, () => this.gh(['api', this.path(path), ...flags])))
   }
   /** Fetches all pages of a GitHub API list within the configured repository, skipping items that fail schema validation. */
   async pages<T>(item: z.ZodType<T>, path: string, tally?: Tally): Promise<T[]> {
-    const pages = z.array(z.array(z.unknown())).parse(await this.gh(['api', this.path(path), '--paginate', '--slurp']))
+    const request = () => this.gh<unknown>(['api', this.path(path), '--paginate', '--slurp'])
+    const pages = z.array(z.array(z.unknown())).parse(await this.retried([], request))
     return validItems(item, pages.flat(), tally)
   }
   private path(path: string): string {
