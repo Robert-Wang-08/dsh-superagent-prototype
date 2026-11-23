@@ -75,9 +75,13 @@ export const threadFollowedNotice = (ticketId: string, thread: string, reason: s
 
 /** Steering relay payload for the main Session: `id` is the request ID that makes delivery idempotent, and `text` is the message body. */
 export interface Relay { id: string; text: string }
-/** What a follow-up asks of the main Session: nothing but a stop the person asks for, since its ticket's worker decides it. */
+/** What a follow-up asks of the main Session: not the work itself, but its worker's answer once it returns. */
 const FOLLOWUP_NOTE = 'Its ticket\'s worker has it and decides; act only if the person asks to stop the work '
-  + '(orchestrator_route kind stop with this trigger_id).'
+  + '(orchestrator_route kind stop with this trigger_id). When its worker answers it with a worker_report naming answer_to, '
+  + 'relay that answer with orchestrator_reply purpose=answer and that trigger_id; assistant text is not delivered.'
+/** The instruction a report that answers a person carries, since only the reply tool reaches the person. */
+const ANSWER_NOTE = 'The worker answered this person\'s question: send it with orchestrator_reply purpose=answer and this '
+  + 'trigger_id, in a short user-facing form; assistant text is not delivered.'
 /**
  * Builds a steering relay for a human follow-up trigger that reached at least one live ticket (including an ended ticket
  * that resumed on the follow-up), with the trigger rendered as workers read it, the replied-to message, and the open
@@ -108,8 +112,8 @@ export function followupRelay(message: { trigger_id: string },
 export function resultRelay(ticket: Ticket, state: string, text: string, replyTo?: string): Relay {
   const id = key('worker-result', ticket.id, ticket.updatedAt, text)
   const summary = text.length > 600 ? { summary: text.slice(0, 600), chars: text.length } : { summary: text }
-  const report = { kind: 'worker_report', ticket: brief(ticket), trigger_id: ticket.origin.triggerId, state, ...replyTo ? { answer_to: replyTo } : {},
-    ...summary, read: `ticket/${ticket.id}/result` }
+  const report = { kind: 'worker_report', ticket: brief(ticket), trigger_id: ticket.origin.triggerId, state,
+    ...replyTo ? { answer_to: replyTo, note: ANSWER_NOTE } : {}, ...summary, read: `ticket/${ticket.id}/result` }
   return { id: `report:${id}`, text: JSON.stringify(report) }
 }
 /**
