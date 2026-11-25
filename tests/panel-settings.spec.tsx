@@ -29,8 +29,8 @@ it('saves the Eval block on the Policy settings and the Executor with its execut
   await click(find(zh['tab.settings'], '.dt-status-head button'))
   await click(zh['mode.auto'])
   await type(field<HTMLInputElement>(zh.evalTimeout), '180')
-  const [provider, model] = all('.dt-model input')
-  await type(provider as HTMLInputElement, 'worker-provider'); await type(model as HTMLInputElement, 'worker-model')
+  const [provider, model] = [field<HTMLSelectElement>(zh.modelProvider), field<HTMLSelectElement>(zh.modelName)]
+  await type(provider, 'worker-provider'); await type(model, 'worker-model')
   await click(zh.save)
   expect(server.settings.eval).toEqual({ mode: 'auto', timeoutSeconds: 180, model: { provider: 'worker-provider', model: 'worker-model' } })
   await click(find(zh['promptPart.runtime/work'], '.dt-settings-link'))
@@ -48,16 +48,40 @@ it('saves the Eval block on the Policy settings and the Executor with its execut
   await click('DSH_SUPERAGENT_DIR')
   expect(field<HTMLTextAreaElement>(zh.prepareCommand).value).toBe('git worktree add "$DSH_SUPERAGENT_DIR"')
   await type(field<HTMLInputElement>(zh.blockedCommands), 'gh-personal  gh.other')
-  const [workerProvider, workerModel, effort] = all('.dt-model input')
-  await type(workerProvider as HTMLInputElement, 'worker-provider'); await type(workerModel as HTMLInputElement,
-    'worker-model'); await type(effort as HTMLInputElement, 'high')
-  expect([...document.querySelectorAll('#dt-worker-model-efforts option')].map(option => option.getAttribute('value'))).toEqual(['high'])
+  const [workerProvider, workerModel, effort] = [field<HTMLSelectElement>(zh.modelProvider),
+    field<HTMLSelectElement>(zh.modelName), field<HTMLSelectElement>(zh.modelEffort)]
+  await type(workerProvider, 'worker-provider'); await type(workerModel, 'worker-model'); await type(effort, 'high')
+  expect([...effort.options].map(option => option.getAttribute('value'))).toEqual(['', 'high'])
   await click(zh.save)
   expect(server.settings.executor).toEqual({ maxWorkers: 5, directory: '/srv/work',
     prepare: 'git worktree add "$DSH_SUPERAGENT_DIR"', blockedCommands: ['gh-personal', 'gh.other'], model: { provider: 'worker-provider',
       model: 'worker-model', reasoningEffort: 'high' } })
   expect(server.requests.filter(request => request.method === 'PUT').map(request => request.path)).toEqual(['settings/eval',
     'settings/executor'])
+})
+
+it('lists every catalog Provider and its Models in the Eval model selector, and keeps a typed route available', async () => {
+  await mount()
+  await click(zh['tab.eval'])
+  await click(find(zh['tab.settings'], '.dt-status-head button'))
+  const provider = field<HTMLSelectElement>(zh.modelProvider)
+  expect([...provider.options].map(option => [option.value, option.textContent])).toEqual([
+    ['', zh.modelInherit], ['worker-provider', 'Worker provider'], ['other-provider', 'Other provider']])
+  await type(provider, 'other-provider')
+  const model = field<HTMLSelectElement>(zh.modelName)
+  expect([...model.options].map(option => [option.value, option.textContent])).toEqual([
+    ['', zh.modelInherit], ['other-model', 'Other model']])
+  await type(model, 'other-model')
+  await type(field<HTMLSelectElement>(zh.modelEffort), 'low')
+  await click(zh.save)
+  expect(server.settings.eval.model).toEqual({ provider: 'other-provider', model: 'other-model', reasoningEffort: 'low' })
+  // A name the catalog does not list can still be typed, for a provider whose catalog could not be read.
+  await click(zh.modelTyped)
+  const [typedProvider, typedModel, typedEffort] = all('.dt-model input')
+  await type(typedProvider as HTMLInputElement, 'worker-provider'); await type(typedModel as HTMLInputElement, 'worker-model')
+  await type(typedEffort as HTMLInputElement, '')
+  await click(zh.save)
+  expect(server.settings.eval.model).toEqual({ provider: 'worker-provider', model: 'worker-model' })
 })
 
 it('loads configuration history on demand with localized changes, Source field labels and notified Tickets', async () => {
