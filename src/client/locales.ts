@@ -404,6 +404,8 @@ const TEXT = {
   modelInherit: ['继承 DSH 默认值', 'Inherit the DSH default'],
   modelEffortDefault: ['模型默认', 'Model default'],
   modelCatalogError: ['无法加载模型建议，仍可填写已知的服务商和模型：{error}', 'Model suggestions are unavailable; known Provider and Model names still work: {error}'],
+  modelPick: ['从 Provider 列表选择', 'Pick from the provider list'],
+  modelPickHint: ['列出该列表里的全部服务商和模型；选中后填入下方三项，也可以继续手动填写。', 'Lists every provider and model in that directory; a pick fills the three fields below, which stay editable.'],
   historyIntro: ['每次保存记一条；改变策略版本的保存（接单规则、各来源上的策略、接单模式）通知进行中的工单。', 'Each save is one entry; saves that change the Policy version (rules, the Policy on each Source, accept mode) notify open Tickets.'],
   historyItem: ['第 {revision} 次保存 · {source}', 'Save {revision} · {source}'],
   historyPolicyChanged: ['生成策略版本 {version}', 'New Policy version {version}'],

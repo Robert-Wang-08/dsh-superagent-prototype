@@ -23,6 +23,26 @@ it('keeps a person\'s own value where another save changed the same setting, and
   expect(server.settings.executor.maxWorkers).toBe(6)
 })
 
+it('offers every provider model in the model picker and fills the route from one choice', async () => {
+  await mount()
+  await click(zh['tab.eval'])
+  await click(find(zh['tab.settings'], '.dt-status-head button'))
+  const picker = field<HTMLSelectElement>(zh.modelPick)
+  expect([...picker.options].map(option => option.textContent)).toEqual([zh.modelInherit, 'Worker provider / Worker model',
+    'Other provider / Other model'])
+  await type(picker, 'other-provider/other-model')
+  const [provider, model, effort] = all('.dt-model input')
+  expect((provider as HTMLInputElement).value).toBe('other-provider')
+  expect((model as HTMLInputElement).value).toBe('other-model')
+  await type(effort as HTMLInputElement, 'low')
+  // The next model advertises only high, so the low effort of the route being replaced is dropped rather than carried over.
+  await type(picker, 'worker-provider/worker-model')
+  expect((effort as HTMLInputElement).value).toBe('')
+  expect([...document.querySelectorAll('#dt-eval-model-efforts option')].map(option => option.getAttribute('value'))).toEqual(['high'])
+  await click(zh.save)
+  expect(server.settings.eval.model).toEqual({ provider: 'worker-provider', model: 'worker-model' })
+})
+
 it('saves the Eval block on the Policy settings and the Executor with its execution environment on the Execution settings, each against its own revision', async () => {
   await mount()
   await click(zh['tab.eval'])

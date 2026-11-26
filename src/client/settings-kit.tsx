@@ -82,6 +82,19 @@ export function ModelField({ id, value, onChange }: { id: string; value: RoleMod
   }
   const models = catalog?.groups.find(group => group.id === current.provider.trim())?.models ?? []
   const fallback = catalog?.default
+  // Every provider and model the DSH directory advertises, so a person can pick any route instead of typing ids.
+  const choices = (catalog?.groups ?? []).flatMap(group => group.models.map(model => ({ key: `${group.id}/${model.id}`,
+    provider: group.id, model: model.id, label: `${group.name} / ${model.name}`,
+    efforts: (model.reasoning?.efforts ?? []).map(effort => effort.id) })))
+  const currentKey = current.provider.trim() && current.model.trim() ? `${current.provider.trim()}/${current.model.trim()}` : ''
+  const selected = choices.find(choice => choice.key === currentKey)?.key ?? ''
+  const choose = (key: string) => {
+    const choice = choices.find(item => item.key === key)
+    if (!choice) { if (!key) onChange(null); return }
+    // A model may not advertise the effort of the route being replaced; drop it instead of saving an unsupported value.
+    const effort = choice.efforts.includes(current.effort.trim()) ? current.effort.trim() : ''
+    onChange({ provider: choice.provider, model: choice.model, ...(effort ? { reasoningEffort: effort } : {}) })
+  }
   const input = (name: keyof typeof current, label: string, placeholder: string) => <Field label={label}>
     <Input list={`${id}-${name}s`} spellCheck={false} placeholder={placeholder} value={current[name]}
       onChange={event => set({ [name]: event.target.value })} />
@@ -90,6 +103,13 @@ export function ModelField({ id, value, onChange }: { id: string; value: RoleMod
     <Hint>{fallback ? t('defaultModel', { model: `${fallback.provider} / ${fallback.model}${fallback.reasoningEffort
       ? ` · ${fallback.reasoningEffort}` : ''}` }) : t('defaultModelUnavailable')}</Hint>
     {error && <p className="dt-error">{t('modelCatalogError', { error })}</p>}
+    {catalog && <Field label={t('modelPick')} hint={t('modelPickHint')}>
+      <select className="dt-select" value={selected || currentKey} onChange={event => choose(event.target.value)}>
+        <option value="">{t('modelInherit')}</option>
+        {choices.map(choice => <option key={choice.key} value={choice.key}>{choice.label}</option>)}
+        {currentKey && !selected && <option value={currentKey} disabled>{current.provider} / {current.model}</option>}
+      </select>
+    </Field>}
     <div className="dt-grid3">
       {input('provider', t('modelProvider'), t('modelInherit'))}{input('model', t('modelName'), t('modelInherit'))}{input('effort',
         t('modelEffort'), t('modelEffortDefault'))}
